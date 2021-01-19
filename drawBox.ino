@@ -1,8 +1,9 @@
-void demoApp2() {
+void drawBox() {
 
   watch->tft->fillScreen(TFT_BLACK);
-  watch->tft->setCursor(0, 100);
-  watch->tft->print("Demo app 2.  Touch the screen to exit back to main.: ");
+  watch->tft->setCursor(0, 0);
+
+  watch->tft->fillRect(80, 20, 159, 80, TFT_WHITE);
   
   while (!watch->getTouch(x, y)) {} // Wait for touch
   while (watch->getTouch(x, y)) {

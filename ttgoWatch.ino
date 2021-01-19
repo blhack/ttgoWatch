@@ -1,5 +1,11 @@
 #include "config.h"
 #include <time.h>
+#include <soc/rtc.h>
+#include <WiFi.h>
+#include <HTTPClient.h>
+
+const char* ssid = "skylab";
+const char* password = "***REMOVED***";
 
 #define uS_TO_S_FACTOR 1000000
 
@@ -10,12 +16,26 @@ bool irq = false;
 uint32_t tiltCount = 0;
 uint32_t clickCount = 0;
 uint32_t stepCount = 0;
+int per;
+int sleepCountdown;
+int hh;
+int mm;
+int ss;
+RTC_Date tnow;
 int16_t x, y;
 int16_t xoffset = 30;
 int sleepTime;
+bool sleeping = false;
 
 void timer_wakeup() {
-  //maybe you can do something interesting here?  There is a problem of juggling the timer based interrupt and the others though.
+  Serial.println("You woke up from a timer.  This will fire every 60 seconds to do things like alarms.");
+  digitalWrite(4, HIGH);
+  delay(300);
+  digitalWrite(4, LOW);
+  sleeping = true;
+  esp_sleep_enable_ext0_wakeup(GPIO_NUM_39, 1);
+  esp_sleep_enable_timer_wakeup(uS_TO_S_FACTOR * 15 * 60);
+  esp_light_sleep_start();
 }
 
 void print_wakeup_reason(){
@@ -37,13 +57,16 @@ void print_wakeup_reason(){
 void setup()
 {
     Serial.begin(115200);
+    pinMode(4, OUTPUT);
     print_wakeup_reason();
     // Get TTGOClass instance
     watch = TTGOClass::getWatch();
 
     // Initialize the hardware, the BMA423 sensor has been initialized internally
     watch->begin();
-    watch->lvgl_begin();
+    watch->rtc->check();
+    watch->rtc->syncToSystem();
+
 
     // Turn on the backlight
     watch->openBL();
@@ -123,7 +146,7 @@ void setup()
     //sensor->resetStepCounter();
 
     // Turn on feature interrupt
-    //sensor->enableStepCountInterrupt();
+    sensor->enableStepCountInterrupt(false);
     sensor->enableTiltInterrupt();
     // It corresponds to isDoubleClick interrupt
     sensor->enableWakeupInterrupt();
@@ -132,11 +155,24 @@ void setup()
     tft->setTextColor(TFT_WHITE, TFT_BLACK);
 
     // Some display settings
+    esp_sleep_enable_timer_wakeup(uS_TO_S_FACTOR * 15 * 60);
     esp_sleep_enable_ext0_wakeup(GPIO_NUM_39, 1);
-  sleepTime = millis() + 5000;
+    sleepTime = millis() + 5000;
 }
 
 void loop() {
+  if (sleeping == true) {
+    if (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_TIMER) {
+      timer_wakeup();
+    } else {
+      watch->displayWakeup();
+      watch->openBL();
+      sleeping = false;
+      sleepTime = millis() + 5000;
+      watch->rtc->syncToSystem();
+      setCpuFrequencyMhz(160);
+    }
+  }
   tft->setTextColor(TFT_WHITE, TFT_BLACK);
     if (irq) {
         irq = 0;
@@ -148,39 +184,93 @@ void loop() {
         } while (!rlst);
     }
 
-
+    if (sensor->getCounter() != stepCount) {
+      tft->setTextColor(TFT_BLACK);
+    tft->setCursor(xoffset, 42);
+    tft->print("StepCount:");
+    tft->print(stepCount);
+    }
     stepCount = sensor->getCounter();
     tft->setTextColor(TFT_RED);
     tft->setCursor(xoffset, 42);
     tft->print("StepCount:");
     tft->print(stepCount);
 
-    int per = watch->power->getBattPercentage();
-
+    if ((watch->power->getBattPercentage()) != per) {
+      tft->setTextColor(TFT_BLACK);
+      tft->setCursor(xoffset, 84);
+      tft->print("Battery:");
+      tft->print(per);
+    }
+    per = watch->power->getBattPercentage();
     tft->setTextColor(TFT_GREEN);
     tft->setCursor(xoffset, 84);
     tft->print("Battery:");
     tft->print(per);
 
-    RTC_Date tnow = watch->rtc->getDateTime();
-    int hh = tnow.hour;
-    int mm = tnow.minute;
-    int ss = tnow.second;
+    if (watch->rtc->getDateTime().minute != mm) {
+      tft->setTextColor(TFT_BLACK);
+      tft->setCursor(xoffset, 126);
+      bool pm = false;
+      if (hh > 12) {
+        hh = hh - 12;
+        pm = true;
+      }
+      tft->print(hh);
+      tft->print(":");
+      if (mm < 10) {
+        tft->print("0");
+      }
+      tft->print(mm);
+      if (pm == true) {
+        tft->print(" PM");
+      } else {
+        tft->print(" AM");
+      }
+    }
+
+    tnow = watch->rtc->getDateTime();
+    hh = tnow.hour;
+    mm = tnow.minute;
+    ss = tnow.second;
     int dday = tnow.day;
     int mmonth = tnow.month;
     int yyear = tnow.year;
 
     tft->setTextColor(TFT_WHITE);
     tft->setCursor(xoffset, 126);
+    bool pm = false;
+    if (hh > 12) {
+      hh = hh - 12;
+      pm = true;
+    }
     tft->print(hh);
     tft->print(":");
+    if (mm < 10) {
+      tft->print("0");
+    }
     tft->print(mm);
+    if (pm == true) {
+      tft->print(" PM");
+    } else {
+      tft->print(" AM");
+    }
 
     tft->setTextColor(TFT_RED);
     tft->setCursor(xoffset, 168);
     tft->print("Drink water.");
 
-
+    if ((sleepTime - millis()) != sleepCountdown) {
+      tft->setTextColor(TFT_BLACK);
+      tft->setCursor(xoffset, 195);
+      tft->print("Sleep in: ");
+      tft->print(sleepCountdown);
+    }
+    sleepCountdown = sleepTime - millis();
+    tft->setTextColor(TFT_WHITE);
+    tft->setCursor(xoffset, 195);
+    tft->print("Sleep in: ");
+    tft->print(sleepCountdown);
 
     if (watch->getTouch(x, y)) {
       Serial.println("You touched me!");
@@ -196,13 +286,16 @@ void loop() {
           demoApp1();
           break;
         case 3:
-          demoApp2();
+          touchDemo();
           break;
         case 4:
+          getRequest();
           break;
         case 5:
+          drawBox();
           break;
         case 6:
+          resetSteps();
           break;
         case 7:
           break;
@@ -214,7 +307,12 @@ void loop() {
       }
 
   if (millis() > sleepTime) {
-    esp_deep_sleep_start();
+    setCpuFrequencyMhz(20);
+    watch->closeBL();
+    watch->displaySleep();
+    sleeping = true;
+    esp_light_sleep_start();
   }
+  Serial.println(sensor->getCounter());
   delay(100);
 }
