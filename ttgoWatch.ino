@@ -4,8 +4,8 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
 
-const char* ssid = "skylab";
-const char* password = "***REMOVED***";
+const char* ssid = "";
+const char* password = "";
 
 #define uS_TO_S_FACTOR 1000000
 
