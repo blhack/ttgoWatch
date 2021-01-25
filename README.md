@@ -19,3 +19,14 @@ The watch will automatically go to sleep 5 seconds after waking, but only if it 
 
 ## Step counter
 The step counter doesn't *seem* to be working for me, but I haven't tested it much.  A lot of this is taken from Lewis He's sketch linked above, and I might just be missing something.
+
+
+## Smart Lights
+This will now control both hue lights and WIZ lights.  For wiz lights, it will set ALL lights to the same colors/brightness at once.  If you want to see how to control individual lights, check the
+porchlight.ino file, and look at how it is being called inside of "redAlert.ino".  You must be connected to WiFi, and then you can send the UDP messages to change the lights.
+
+Hue lights aren't nearly as hacker friendly.  See the "secrets.h" file for an example of how to get a username for your hue bridge, then specify it in that file.  See the file "hueLights.ino" 
+for an example of how I am controlling the lights.  The colors are controlled as an XY coordinate.  I used the hue app on my phone along with the API explorer specified in that file to 
+get XY values to set the colors that I want.
+
+One thing about the hue lights that you'll notice.  I'm basically spamming the HTTP requests in rapid succession until they succeed.  Not sure why this is necessary.  Yes this is hacky.
