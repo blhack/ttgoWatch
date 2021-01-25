@@ -1,11 +1,13 @@
 #include "config.h"
+#include "secrets.h"
 #include <time.h>
 #include <soc/rtc.h>
 #include <WiFi.h>
+#include <WiFiUdp.h>
 #include <HTTPClient.h>
 
-const char* ssid = "";
-const char* password = "";
+const char* ssid = MYSSID;
+const char* password = WIFIKEY;
 
 #define uS_TO_S_FACTOR 1000000
 
@@ -52,6 +54,168 @@ void print_wakeup_reason(){
     case ESP_SLEEP_WAKEUP_ULP : Serial.println("Wakeup caused by ULP program"); break;
     default : Serial.printf("Wakeup was not caused by deep sleep: %d\n",wakeup_reason); break;
   }
+}
+
+void wakeIfNecessary() {
+  if (sleeping == true) {
+    if (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_TIMER) {
+      timer_wakeup();
+    } else {
+      watch->displayWakeup();
+      watch->openBL();
+      sleeping = false;
+      sleepTime = millis() + 5000;
+      watch->rtc->syncToSystem();
+      setCpuFrequencyMhz(160);
+    }
+  }
+}
+
+void showTime() {
+  tft->setTextColor(TFT_WHITE, TFT_BLACK);
+    if (irq) {
+        irq = 0;
+        bool  rlst;
+        do {
+            // Read the BMA423 interrupt status,
+            // need to wait for it to return to true before continuing
+            rlst =  sensor->readInterrupt();
+        } while (!rlst);
+    }
+
+    if (sensor->getCounter() != stepCount) {
+      tft->setTextColor(TFT_BLACK);
+    tft->setCursor(xoffset, 42);
+    tft->print("StepCount:");
+    tft->print(stepCount);
+    }
+    stepCount = sensor->getCounter();
+    tft->setTextColor(TFT_RED);
+    tft->setCursor(xoffset, 42);
+    tft->print("StepCount:");
+    tft->print(stepCount);
+
+    if ((watch->power->getBattPercentage()) != per) {
+      tft->setTextColor(TFT_BLACK);
+      tft->setCursor(xoffset, 84);
+      tft->print("Battery:");
+      tft->print(per);
+    }
+    per = watch->power->getBattPercentage();
+    tft->setTextColor(TFT_GREEN);
+    tft->setCursor(xoffset, 84);
+    tft->print("Battery:");
+    tft->print(per);
+
+    if (watch->rtc->getDateTime().minute != mm) {
+      tft->setTextColor(TFT_BLACK);
+      tft->setCursor(xoffset, 126);
+      bool pm = false;
+      if (hh > 12) {
+        hh = hh - 12;
+        pm = true;
+      }
+      tft->print(hh);
+      tft->print(":");
+      if (mm < 10) {
+        tft->print("0");
+      }
+      tft->print(mm);
+      if (pm == true) {
+        tft->print(" PM");
+      } else {
+        tft->print(" AM");
+      }
+    }
+
+    tnow = watch->rtc->getDateTime();
+    hh = tnow.hour;
+    mm = tnow.minute;
+    ss = tnow.second;
+    int dday = tnow.day;
+    int mmonth = tnow.month;
+    int yyear = tnow.year;
+
+    tft->setTextColor(TFT_WHITE);
+    tft->setCursor(xoffset, 126);
+    bool pm = false;
+    if (hh > 12) {
+      hh = hh - 12;
+      pm = true;
+    }
+    tft->print(hh);
+    tft->print(":");
+    if (mm < 10) {
+      tft->print("0");
+    }
+    tft->print(mm);
+    if (pm == true) {
+      tft->print(" PM");
+    } else {
+      tft->print(" AM");
+    }
+
+    tft->setTextColor(TFT_RED);
+    tft->setCursor(xoffset, 168);
+    tft->print("Drink water.");
+
+    if ((sleepTime - millis()) != sleepCountdown) {
+      tft->setTextColor(TFT_BLACK);
+      tft->setCursor(xoffset, 195);
+      tft->print("Sleep in: ");
+      tft->print(sleepCountdown);
+    }
+    sleepCountdown = sleepTime - millis();
+    tft->setTextColor(TFT_WHITE);
+    tft->setCursor(xoffset, 195);
+    tft->print("Sleep in: ");
+    tft->print(sleepCountdown);
+}
+
+void handleMenu() {
+  switch (modeMenu()) { // Call modeMenu. The return is the desired app number
+      case 0: // Zero is the clock, just exit the switch
+        sleepTime = millis() + 5000;
+        break;
+      case 1:
+        demoApp();
+        break;
+      case 2:
+        demoApp1();
+        break;
+      case 3:
+        touchDemo();
+        break;
+      case 4:
+        getRequest();
+        break;
+      case 5:
+        drawBox();
+        break;
+      case 6:
+        resetSteps();
+        break;
+      case 7:
+        sleepyTime();
+        break;
+      case 8:
+        lightsOff();
+        break;
+      case 9:
+        lightsOn();
+        break;
+      case 10:
+        redAlert();
+        break;
+      }
+}
+
+void watchSleepyTime() {
+  setCpuFrequencyMhz(20);
+  watch->closeBL();
+  watch->displaySleep();
+  sleeping = true;
+  esp_light_sleep_start();
 }
 
 void setup()
@@ -161,158 +325,23 @@ void setup()
 }
 
 void loop() {
-  if (sleeping == true) {
-    if (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_TIMER) {
-      timer_wakeup();
-    } else {
-      watch->displayWakeup();
-      watch->openBL();
-      sleeping = false;
-      sleepTime = millis() + 5000;
-      watch->rtc->syncToSystem();
-      setCpuFrequencyMhz(160);
-    }
+  //see if you just woke up from an interrupt?  If so turn the screen back on etc.
+  wakeIfNecessary();
+
+  //Display the "home" screen, which is the time, etc.
+  showTime();
+
+  //wait to get a touch.
+  if (watch->getTouch(x, y)) {
+    Serial.println("You touched me!");
+    while (watch->getTouch(x, y)) {} // wait for user to release
+    //if you touched something, show the menu.
+    handleMenu();
   }
-  tft->setTextColor(TFT_WHITE, TFT_BLACK);
-    if (irq) {
-        irq = 0;
-        bool  rlst;
-        do {
-            // Read the BMA423 interrupt status,
-            // need to wait for it to return to true before continuing
-            rlst =  sensor->readInterrupt();
-        } while (!rlst);
-    }
 
-    if (sensor->getCounter() != stepCount) {
-      tft->setTextColor(TFT_BLACK);
-    tft->setCursor(xoffset, 42);
-    tft->print("StepCount:");
-    tft->print(stepCount);
-    }
-    stepCount = sensor->getCounter();
-    tft->setTextColor(TFT_RED);
-    tft->setCursor(xoffset, 42);
-    tft->print("StepCount:");
-    tft->print(stepCount);
-
-    if ((watch->power->getBattPercentage()) != per) {
-      tft->setTextColor(TFT_BLACK);
-      tft->setCursor(xoffset, 84);
-      tft->print("Battery:");
-      tft->print(per);
-    }
-    per = watch->power->getBattPercentage();
-    tft->setTextColor(TFT_GREEN);
-    tft->setCursor(xoffset, 84);
-    tft->print("Battery:");
-    tft->print(per);
-
-    if (watch->rtc->getDateTime().minute != mm) {
-      tft->setTextColor(TFT_BLACK);
-      tft->setCursor(xoffset, 126);
-      bool pm = false;
-      if (hh > 12) {
-        hh = hh - 12;
-        pm = true;
-      }
-      tft->print(hh);
-      tft->print(":");
-      if (mm < 10) {
-        tft->print("0");
-      }
-      tft->print(mm);
-      if (pm == true) {
-        tft->print(" PM");
-      } else {
-        tft->print(" AM");
-      }
-    }
-
-    tnow = watch->rtc->getDateTime();
-    hh = tnow.hour;
-    mm = tnow.minute;
-    ss = tnow.second;
-    int dday = tnow.day;
-    int mmonth = tnow.month;
-    int yyear = tnow.year;
-
-    tft->setTextColor(TFT_WHITE);
-    tft->setCursor(xoffset, 126);
-    bool pm = false;
-    if (hh > 12) {
-      hh = hh - 12;
-      pm = true;
-    }
-    tft->print(hh);
-    tft->print(":");
-    if (mm < 10) {
-      tft->print("0");
-    }
-    tft->print(mm);
-    if (pm == true) {
-      tft->print(" PM");
-    } else {
-      tft->print(" AM");
-    }
-
-    tft->setTextColor(TFT_RED);
-    tft->setCursor(xoffset, 168);
-    tft->print("Drink water.");
-
-    if ((sleepTime - millis()) != sleepCountdown) {
-      tft->setTextColor(TFT_BLACK);
-      tft->setCursor(xoffset, 195);
-      tft->print("Sleep in: ");
-      tft->print(sleepCountdown);
-    }
-    sleepCountdown = sleepTime - millis();
-    tft->setTextColor(TFT_WHITE);
-    tft->setCursor(xoffset, 195);
-    tft->print("Sleep in: ");
-    tft->print(sleepCountdown);
-
-    if (watch->getTouch(x, y)) {
-      Serial.println("You touched me!");
-      while (watch->getTouch(x, y)) {} // wait for user to release
-      switch (modeMenu()) { // Call modeMenu. The return is the desired app number
-        case 0: // Zero is the clock, just exit the switch
-          sleepTime = millis() + 5000;
-          break;
-        case 1:
-          demoApp();
-          break;
-        case 2:
-          demoApp1();
-          break;
-        case 3:
-          touchDemo();
-          break;
-        case 4:
-          getRequest();
-          break;
-        case 5:
-          drawBox();
-          break;
-        case 6:
-          resetSteps();
-          break;
-        case 7:
-          break;
-        case 8:
-          break;
-        case 9:
-          break;
-        }
-      }
-
+  //if the timer has expired, go to sleep
   if (millis() > sleepTime) {
-    setCpuFrequencyMhz(20);
-    watch->closeBL();
-    watch->displaySleep();
-    sleeping = true;
-    esp_light_sleep_start();
+    watchSleepyTime();
   }
-  Serial.println(sensor->getCounter());
   delay(100);
 }

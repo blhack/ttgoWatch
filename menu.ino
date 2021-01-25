@@ -8,10 +8,11 @@
 // 3) in the main routine in TWatch_framework, add a case to the switch statement to call your app routine.
 
 
-const int maxApp = 7; // number of apps
-String appName[maxApp] = {"Exit", "DemoApp", "DemoApp1", "TouchDemo", "GetRequest", "DrawBox", "Reset Steps"}; // app names
+const int maxApp = 11; // number of apps
+String appName[maxApp] = {"Exit", "DemoApp", "DemoApp1", "TouchDemo", "GetRequest", "DrawBox", "Reset Steps", "SleepyTime", "Lights Off", "Lights On", "Red Alert"}; // app names
 
 uint8_t modeMenu() {
+  sleepTime = millis() + 8000;
   int mSelect = 0; // The currently highlighted app
   int16_t x, y, tx, ty;
 
@@ -23,7 +24,9 @@ uint8_t modeMenu() {
     if (watch->getTouch(x, y)) { // If you have touched something...
 
       while (watch->getTouch(tx, ty)) {} // wait until you stop touching
-
+      //you touched the menu, give 8 seconds to wait.
+      sleepTime = millis() + 8000;
+      
       if (y >= 160) { // you want the menu list shifted up
         mSelect += 1;
         if (mSelect == maxApp) mSelect = 0;
@@ -38,6 +41,9 @@ uint8_t modeMenu() {
       if (y > 80 && y < 160) { // You selected the middle
         exitMenu = true;
       }
+    }
+  if (millis() > sleepTime) {
+    watchSleepyTime();
     }
   }
   //Return with mSelect containing the desired mode
